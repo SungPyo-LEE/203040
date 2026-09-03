@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: patent-siege
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    # 방 정보가 서버 메모리에만 있으므로 인스턴스는 반드시 1개여야 한다.
+    # 2개 이상이면 두 플레이어가 서로 다른 인스턴스에 붙어 방을 못 찾는다.
+    numInstances: 1
+    healthCheckPath: /healthz

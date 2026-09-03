@@ -1,0 +1,12 @@
+{
+  "name": "patent-siege",
+  "version": "1.0.0",
+  "private": true,
+  "description": "묘한특허 — 1v1 실시간 대전 (기존 냥타워/맵 디자인 + 패시브 시스템)",
+  "scripts": {
+    "start": "node server/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
