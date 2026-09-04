@@ -131,6 +131,65 @@ const PASSIVES = [
 const PASSIVE_BY_KEY = Object.fromEntries(PASSIVES.map((p) => [p.key, p]));
 
 /**
+ * 「변리사 각성」이 걸렸을 때 변리사냥이 대신 쓰는 스탯.
+ * CATS.agent 를 덮어쓰지 않고 별도 원본으로 두는 이유는 stats.js 의 원칙과 같다 —
+ * 정적 정의와 파생 결과를 절대 같은 필드에 쓰지 않는다.
+ * rate 는 ATTACK_RATE_MULT(2.2) 가 곱해지기 전의 값이다.
+ */
+const AWAKENED_AGENT = {
+  dmg: 22, rate: 1.0, range: 190, targets: 3, pierce: 35,
+};
+
+/**
+ * 특별심결 — 2웨이브마다 후보 3장 중 하나를 고르는 판 뒤집기 카드.
+ *
+ * 패시브(PASSIVES)가 +10%씩 잔잔하게 쌓는 보정이라면, 이쪽은 **규칙 자체를 비튼다**.
+ * 골랐으면 배치를 다시 짜야 이득이 나오도록 만든 것이 의도다.
+ * 전부 자기 판에만 걸린다 (상대에게 거는 카드는 없다).
+ *
+ * requires  이 종류의 냥타워가 판 위에 있어야 후보로 뜬다 — 없으면 그냥 함정 카드가 되므로
+ * 같은 심결은 한 판에 한 번만 뜬다 (중첩 없음).
+ * @type {{key:string,name:string,icon:string,tag:string,desc:string,detail:string,requires?:string}[]}
+ */
+const MUTATIONS = [
+  { key: "awaken", name: "변리사 각성", icon: "🔥", tag: "판 뒤집기", requires: "agent",
+    desc: "변리사냥이 직접 싸운다 · 나머지는 더미",
+    detail: "눈에서 불이 번쩍 튀며 변리사냥이 서류를 내던지고 직접 싸우기 시작한다 " +
+      `(공격력 ${AWAKENED_AGENT.dmg} · 사거리 ${(AWAKENED_AGENT.range / 84).toFixed(1)}칸 · ` +
+      `동시조준 ${AWAKENED_AGENT.targets} · 방어무시 ${AWAKENED_AGENT.pierce}%). ` +
+      "대신 보좌는 완전히 사라지고, 변리사냥이 아닌 모든 냥타워는 공격력·공속이 70% 깎여 사실상 더미가 된다." },
+  { key: "merge", name: "결합출원", icon: "🔗", tag: "뭉치기",
+    desc: "맞닿은 같은 종류가 한 몸이 된다",
+    detail: "상하좌우로 이어진 같은 종류 냥타워 무리가 하나의 권리로 묶인다. 무리 크기가 n이면 " +
+      "그 무리 전원의 공격력이 ×(1+0.25×(n−1)) 이 된다 — 넷이 붙으면 1.75배다. 종류를 섞으면 아무 일도 일어나지 않는다." },
+  { key: "divisional", name: "분할출원", icon: "✂️", tag: "물량전",
+    desc: "동시조준 +1 · 공격력 −22%",
+    detail: "하나의 출원을 여럿으로 쪼갠다. 모든 냥타워가 한 번에 한 마리를 더 조준하는 대신 한 방의 무게는 22% 가벼워진다. " +
+      "잡몹이 쏟아지는 웨이브에서 특히 강하다." },
+  { key: "priority", name: "우선권주장", icon: "⏱️", tag: "속사",
+    desc: "공속 ×1.55 · 사거리 −22%",
+    detail: "선출원의 지위를 앞당겨 심사를 몰아친다. 손이 훨씬 빨라지는 대신 시야가 좁아져 " +
+      "맞닿은 통로 정도만 닿는다 — 동선에 바짝 붙여 세우지 않으면 손만 빨라지고 아무것도 못 때린다." },
+  { key: "broad", name: "광역청구항", icon: "📡", tag: "장사거리",
+    desc: "사거리 ×1.6 · 방어무시 +35%p · 공속 −20%",
+    detail: "청구범위를 넓게 잡아 권리가 멀리·깊이 미친다. 판 구석에서도 동선을 덮고 두꺼운 방어를 뚫지만 손은 느려진다. " +
+      "방어 8·13짜리 무효심판 청구인과 특허괴물에게 특히 잘 든다." },
+  { key: "elite", name: "소수정예", icon: "♟️", tag: "조건부",
+    desc: "냥타워 4명 이하인 동안 공격력 ×2.2",
+    detail: "적게 뽑아 깊게 판다. 판 위 냥타워(무효화된 것 제외)가 4명 이하로 유지되는 동안에만 공격력이 2.2배가 된다 — " +
+      "다섯 번째를 세우는 순간 배율은 사라지고, 치우면 다시 돌아온다." },
+  { key: "restore", name: "직권보정", icon: "♻️", tag: "복구",
+    desc: "무효화 즉시 해제 · 이후 무효는 1웨이브",
+    detail: "심사관이 직권으로 흠을 고쳐 준다. 지금 무효화된 냥타워가 그 자리에서 전부 되살아나고, " +
+      "앞으로 무효심결을 맞아도 1웨이브만 쉬면 돌아온다." },
+  { key: "royalty", name: "실시료 징수", icon: "💰", tag: "경제",
+    desc: "처치 보상 +60% · 웨이브 수입 +50% · 내구 −8",
+    detail: "권리를 행사해 실시료를 걷는다. 돈이 확 풀려 판을 다시 짤 여유가 생기는 대신, " +
+      "소송에 힘을 쓰느라 등록원부 내구가 즉시 8 깎인다 (이걸로 지지는 않는다)." },
+];
+const MUTATION_BY_KEY = Object.fromEntries(MUTATIONS.map((m) => [m.key, m]));
+
+/**
  * 침입자. voids = 돌파 시 무효화하는 냥타워 수 · fee = 돌파 시 빼앗기는 특허료.
  * @type {Record<string,{nm:string,hp:number,spd:number,def:number,r:number,col:string,rw:number,
  *   leak:number,voids?:number,fee?:number,desc:string,icon:string}>}
@@ -194,9 +253,11 @@ const BAL = {
   voidWaves: 3,              // 무효화 지속 웨이브 (상향 — 돌파당 손실이 더 오래 간다)
   spawnGap: 0.52, spawnGapBoss: 2.0,   // 더 촘촘하게 몰아친다
   waveCount: 12,
+  mutationEvery: 2, mutationPicks: 3,  // 몇 웨이브마다 특별심결이 뜨는가 / 후보 몇 장을 보여주는가
 };
 
-return { BAL, CATS, ENEMIES, PASSIVES, PASSIVE_BY_KEY, SKILLS, WAVES };
+return { AWAKENED_AGENT, BAL, CATS, ENEMIES, MUTATIONS, MUTATION_BY_KEY,
+         PASSIVES, PASSIVE_BY_KEY, SKILLS, WAVES };
 })();
 __mods["core/maps.js"] = (function(){
 // @ts-check
@@ -683,8 +744,10 @@ return { adjCells, adjCellsLR, adjRelics, blockedGrid, canPlace, cats, cellCente
 })();
 __mods["core/stats.js"] = (function(){
 // @ts-check
-const {CATS, BAL} = __req("core/data.js");
+const {AWAKENED_AGENT, CATS, BAL} = __req("core/data.js");
 const {cats, adjCellsLR} = __req("core/board.js");
+
+const DIRS = [[1,0],[-1,0],[0,1],[0,-1]];
 
 /** 조각이 차지한 칸들 ("x,y" 문자열) */
 function pieceCells(p) {
@@ -692,6 +755,39 @@ function pieceCells(p) {
   for (let dy = 0; dy < p.h; dy++)
     for (let dx = 0; dx < p.w; dx++) out.push(`${p.x + dx},${p.y + dy}`);
   return out;
+}
+
+/**
+ * 결합출원 — 상하좌우로 맞닿은 **같은 종류** 냥타워를 무리로 묶고,
+ * 무리 크기 n 만큼 그 무리 전원의 공격력을 올린다.
+ * 무리 크기는 st.merged 에 남겨서 UI 가 테두리로 보여줄 수 있게 한다.
+ * @param {any[]} live 무효화되지 않은 냥타워들
+ */
+function mergeClusters(live) {
+  const at = new Map();
+  for (const c of live) for (const k of pieceCells(c)) at.set(k, c);
+
+  const seen = new Set();
+  for (const start of live) {
+    if (seen.has(start)) continue;
+    const group = [start];
+    seen.add(start);
+    // 너비 우선으로 같은 종류만 타고 번져 나간다
+    for (let i = 0; i < group.length; i++) {
+      for (const cell of pieceCells(group[i])) {
+        const [x, y] = cell.split(",").map(Number);
+        for (const [dx, dy] of DIRS) {
+          const n = at.get(`${x + dx},${y + dy}`);
+          if (!n || seen.has(n) || n.key !== start.key) continue;
+          seen.add(n);
+          group.push(n);
+        }
+      }
+    }
+    if (group.length < 2) continue;
+    const mul = 1 + 0.25 * (group.length - 1);
+    for (const c of group) { c.st.dmg *= mul; c.st.merged = group.length; }
+  }
 }
 
 /**
@@ -713,44 +809,81 @@ function computeStats(b) {
   const live = cats(b).filter((c) => !c.void);
   const bonus = b.bonus || { dmg: 0, rate: 0, range: 0 };
   const bMul = (k) => Math.max(0.2, 1 + bonus[k]);
+  const mut = new Set(b.mutations || []);      // 특별심결 (2웨이브마다 하나씩 고른다)
+  // 변리사 각성 — 스탯 원본부터 갈아치운다. 단, 살아 있는 변리사냥이 하나라도 있어야 효력이 있다:
+  // 무효심결로 변리사냥이 전부 멎었는데 나머지가 무력화 대가만 계속 치르는 일이 없도록.
+  const awake = mut.has("awaken") && live.some((c) => CATS[c.key].kind === "buff");
   const ATTACK_RATE_MULT = 2.2;   // 공속 상향 — 균형을 위해 WAVES 스폰 수도 함께 늘렸다
 
   // 기본 스탯 (+ 패시브로 누적된 자기강화/상대약화 배율)
   for (const c of live) {
     const base = CATS[c.key];
+    // 각성한 변리사냥만 CATS 대신 AWAKENED_AGENT 를 원본으로 쓴다. CATS 는 절대 건드리지 않는다.
+    const src = awake && base.kind === "buff" ? AWAKENED_AGENT : base;
     c.st = {
-      dmg: base.dmg * bMul("dmg"), rate: base.rate * ATTACK_RATE_MULT * bMul("rate"), range: base.range * bMul("range"),
-      pierce: Math.min(BAL.pierceCap, base.pierce || 0),
-      targets: base.targets || 1,
-      critC: base.critC || 0, critM: base.critM || 1,
-      slow: Math.min(BAL.slowCap, base.slow || 0),
+      dmg: src.dmg * bMul("dmg"), rate: src.rate * ATTACK_RATE_MULT * bMul("rate"), range: src.range * bMul("range"),
+      pierce: Math.min(BAL.pierceCap, src.pierce || 0),
+      targets: src.targets || 1,
+      critC: src.critC || 0, critM: src.critM || 1,
+      slow: Math.min(BAL.slowCap, src.slow || 0),
       buffDmg: 1, buffRate: 1,
+      awakened: src === AWAKENED_AGENT,   // 판 위에서 불꽃 연출을 붙일 대상
+      dummy: false,                       // 각성의 대가로 무력화된 냥타워
+      merged: 0,                          // 결합출원으로 묶인 무리 크기 (1 이하면 안 묶인 것)
     };
   }
   for (const c of cats(b).filter((c) => c.void)) c.st = null;
 
-  // 인접 보좌 — 변리사냥류(순수 보좌형이든, 조합으로 만들어진 하이브리드든) 실제로 이어진 터 칸에만 배율을 곱한다
-  for (const a of live) {
-    const base = CATS[a.key];
-    if (!base.auraDmg && !base.auraRate) continue;
-    const adjSet = adjCellsLR(b, a);
-    for (const c of live) {
-      if (c === a) continue;
-      if (pieceCells(c).some((k) => adjSet.has(k))) {
-        c.st.buffDmg *= base.auraDmg;
-        c.st.buffRate *= base.auraRate;
+  // 인접 보좌 — 변리사냥이 실제로 이어진 터 칸에만 배율을 곱한다.
+  // 각성하면 서류를 놓고 직접 싸우므로 보좌는 통째로 사라진다.
+  if (!awake) {
+    for (const a of live) {
+      const base = CATS[a.key];
+      if (!base.auraDmg && !base.auraRate) continue;
+      const adjSet = adjCellsLR(b, a);
+      for (const c of live) {
+        if (c === a) continue;
+        if (pieceCells(c).some((k) => adjSet.has(k))) {
+          c.st.buffDmg *= base.auraDmg;
+          c.st.buffRate *= base.auraRate;
+        }
       }
     }
   }
-  const report = [];
   for (const c of live) {
     c.st.dmg *= c.st.buffDmg;
     c.st.rate *= c.st.buffRate;
-    report.push({ cat: c, buffed: c.st.buffDmg > 1 || c.st.buffRate > 1 });
   }
 
-  // 경제는 유물이 없으니 항상 고정값
-  const econ = { killGold: 0, income: 0, hp: 0 };
+  // ── 특별심결 보정 ──
+  // 여기서만 적용한다. 심결은 상태가 아니라 매 계산마다 다시 곱해지는 규칙이라,
+  // 냥타워를 놓고 치울 때마다 자동으로 최신 값이 나온다 (소수정예의 4명 조건이 특히 그렇다).
+  if (awake) {
+    for (const c of live) {
+      if (c.st.awakened) continue;
+      c.st.dmg *= 0.3; c.st.rate *= 0.3;
+      c.st.dummy = true;
+    }
+  }
+  if (mut.has("divisional")) for (const c of live) { c.st.targets += 1; c.st.dmg *= 0.78; }
+  if (mut.has("priority"))   for (const c of live) { c.st.rate *= 1.55; c.st.range *= 0.78; }
+  if (mut.has("broad")) {
+    for (const c of live) {
+      c.st.range *= 1.6; c.st.rate *= 0.8;
+      c.st.pierce = Math.min(BAL.pierceCap, c.st.pierce + 35);
+    }
+  }
+  if (mut.has("elite") && live.length <= 4) for (const c of live) c.st.dmg *= 2.2;
+  // 결합출원은 실제로 때리는 냥타워끼리만 묶는다 — 각성 전 변리사냥까지 무리에 넣으면
+  // 아무 일도 안 일어나는데 금테만 둘러 오해를 산다.
+  if (mut.has("merge")) mergeClusters(live.filter((c) => c.st.dmg > 0));
+
+  const report = live.map((c) => ({ cat: c, buffed: c.st.buffDmg > 1 || c.st.buffRate > 1 }));
+
+  // 경제 — 유물은 없으므로 실시료 징수(특별심결)만이 이 숫자를 움직인다.
+  // killGold 는 처치 보상 %, income 은 웨이브 수입 %.
+  const royalty = mut.has("royalty");
+  const econ = { killGold: royalty ? 60 : 0, income: royalty ? 50 : 0, hp: 0 };
   return { econ, active: new Set(), report };
 }
 
@@ -821,12 +954,14 @@ function castSkill(g, def, pt) {
 
 /** 돌파 시 심사관 무효화 */
 function voidCats(g, n) {
+  // 지속 웨이브는 판마다 다를 수 있다 — 「직권보정」 심결이 g.bal.voidWaves 를 1로 낮춘다
+  const waves = g.bal?.voidWaves ?? BAL.voidWaves;
   const pool = cats(g).filter((p) => !p.void);
   for (let i = 0; i < n && pool.length; i++) {
     const p = pool.splice(g.rng.int(pool.length), 1)[0];
-    p.void = BAL.voidWaves;
+    p.void = waves;
     g.voidedThisWave.add(p);   // 이번 웨이브 안에서 막 무효화된 심사관 — 이번 웨이브 종료 시 감산을 한 번 건너뛴다
-    g.events.push({ t: "void", key: p.key, name: CATS[p.key].name });
+    g.events.push({ t: "void", key: p.key, name: CATS[p.key].name, waves });
   }
 }
 
@@ -841,7 +976,9 @@ function step(g, dt, now) {
 
   // ── 사격 ──
   for (const c of cats(g)) {
-    if (!c.st || CATS[c.key].kind === "buff") continue;
+    // 공격 여부는 타입이 아니라 계산된 스탯으로 판정한다 —
+    // 「변리사 각성」이 걸리면 buff 타입인 변리사냥도 실제로 쏘기 때문이다.
+    if (!c.st || c.st.dmg <= 0 || c.st.rate <= 0) continue;
     c.cd = (c.cd || 0) - dt;
     if (c.cd > 0) continue;
 
@@ -931,7 +1068,7 @@ return { castSkill, damage, step };
 __mods["core/game.js"] = (function(){
 // @ts-check
 const {Rng} = __req("core/rng.js");
-const {WAVES, BAL, CATS, SKILLS} = __req("core/data.js");
+const {WAVES, BAL, CATS, MUTATIONS, MUTATION_BY_KEY, SKILLS} = __req("core/data.js");
 const {getMap, parseMap} = __req("core/maps.js");
 const B = __req("core/board.js");
 const {computeStats} = __req("core/stats.js");
@@ -1000,6 +1137,12 @@ class Game {
     this.myPassives = [];  // 내가 (직접 선택 또는 상대에게서) 받은 효과 로그
     this.foePassives = []; // 내가 상대에게 건 효과 로그
     this.awaitingPassive = false;
+
+    /** 고른 특별심결 키들. computeStats 가 매 계산마다 이 목록을 다시 읽는다. */
+    this.mutations = [];
+    /** 지금 고르는 중인 후보 키 3장 */
+    this.mutationOffer = [];
+    this.awaitingMutation = false;
 
     /** 액티브 스킬 재사용 대기(초). 웨이브가 끝나면 전부 0으로 돌아간다. */
     this.skillCd = {};
@@ -1172,8 +1315,11 @@ class Game {
   }
 
   // ── 웨이브 ──
+  /** 웨이브 사이 선택(패시브·특별심결)을 기다리는 중인가. 이 동안엔 판을 건드릴 수 없다. */
+  get picking() { return this.awaitingPassive || this.awaitingMutation; }
+
   startWave() {
-    if (this.phase !== "prep" || this.awaitingPassive) return false;
+    if (this.phase !== "prep" || this.picking) return false;
     this.recompute();
     if (!this.lanes.length) return false;
     this.wave++;
@@ -1222,7 +1368,9 @@ class Game {
     this.shots = [];
     // 스킬 대기시간은 웨이브를 넘기면 초기화된다 — 웨이브 안에서 언제 쓸지가 판단 지점이 되도록
     for (const k in this.skillCd) this.skillCd[k] = 0;
-    const income = Math.round(this.bal.incomeBase + this.wave * this.bal.incomePerWave);
+    // 수입 — 「실시료 징수」 심결이 econ.income(%)을 올린다
+    const income = Math.round((this.bal.incomeBase + this.wave * this.bal.incomePerWave)
+                              * (1 + this.econ.income / 100));
     this.gold += income;
     this.recompute();
     this.events.push({ t: "wave_end", wave: this.wave, income, bonus: 0 });
@@ -1231,7 +1379,45 @@ class Game {
       this.events.push({ t: "over", win: true });
     } else {
       this.awaitingPassive = true;
+      // 2웨이브마다 특별심결. 패시브를 고른 다음 이어서 뜬다 (UI 가 순서를 잇는다).
+      if (this.wave % this.bal.mutationEvery === 0) this.rollMutations();
     }
+  }
+
+  /**
+   * 특별심결 후보를 뽑는다. 이미 고른 것과, 조건(requires)을 못 채운 것은 후보에서 빠진다 —
+   * 변리사냥이 하나도 없는데 「변리사 각성」이 뜨면 그건 선택지가 아니라 함정이다.
+   */
+  rollMutations() {
+    const owned = new Set(this.mutations);
+    const onBoard = new Set(B.cats(this).map((c) => c.key));
+    const pool = MUTATIONS.filter((m) => !owned.has(m.key) && (!m.requires || onBoard.has(m.requires)));
+    if (!pool.length) return;
+    this.mutationOffer = this.rng.shuffle(pool).slice(0, this.bal.mutationPicks).map((m) => m.key);
+    this.awaitingMutation = true;
+  }
+
+  /**
+   * 고른 특별심결을 새긴다. 대부분은 목록에 키를 넣는 것으로 끝나고
+   * (computeStats 가 매 계산마다 다시 읽는다), 한 번만 일어나는 것만 여기서 직접 처리한다.
+   * @param {string} key
+   */
+  applyMutation(key) {
+    const def = MUTATION_BY_KEY[key];
+    if (!def || !this.awaitingMutation || this.mutations.includes(key)) return false;
+    this.mutations.push(key);
+    this.awaitingMutation = false;
+    this.mutationOffer = [];
+
+    if (key === "restore") {
+      this.bal.voidWaves = 1;                        // 앞으로의 무효는 한 웨이브만
+      for (const p of B.placed(this)) p.void = 0;    // 지금 무효화된 것은 그 자리에서 복구
+    }
+    if (key === "royalty") this.hp = Math.max(1, this.hp - 8);  // 이 대가로 지지는 않는다
+
+    this.recompute();
+    this.events.push({ t: "mutation", key, name: def.name, icon: def.icon, desc: def.desc });
+    return true;
   }
 
   /**
@@ -1308,6 +1494,7 @@ class Game {
       covered: this.coveredPath, gates: this.gates.length,
       cover: this.cover, gold: Math.round(this.gold),
       cats: B.cats(this).length,
+      mutations: this.mutations.slice(),
       skillUses: { ...this.skillUses },
       skillTotal: Object.values(this.skillUses).reduce((a, b) => a + b, 0),
       reg: this.reg,
@@ -1342,7 +1529,7 @@ return { onSpriteReady, sprite };
 __mods["web/main.js"] = (function(){
 // @ts-check
 const {Game, frameOf} = __req("core/game.js");
-const {CATS, ENEMIES, BAL, PASSIVES, PASSIVE_BY_KEY, SKILLS} = __req("core/data.js");
+const {CATS, ENEMIES, BAL, MUTATION_BY_KEY, PASSIVES, PASSIVE_BY_KEY, SKILLS} = __req("core/data.js");
 const {MAPS} = __req("core/maps.js");
 const B = __req("core/board.js");
 const {sprite, onSpriteReady} = __req("web/sprite.js");
@@ -1409,6 +1596,12 @@ function onServerMessage(msg) {
       }
       renderPassiveTags();
       render();
+      break;
+    }
+    case "oppMutation": {
+      // 특별심결은 상대 판에만 걸린다 — 이쪽은 무슨 카드를 새겼는지만 알려준다
+      const def = MUTATION_BY_KEY[msg.key];
+      if (def) log(`<b class="warn">상대가 특별심결 「${def.name}」</b> ${def.icon} — ${def.desc}`);
       break;
     }
     case "oppWon":
@@ -1506,9 +1699,14 @@ function render() {
 
 function pieceEl(p, onBoard) {
   const el = document.createElement("div");
-  // 변리사냥의 보좌를 받고 있으면 배경이 은은하게 반짝인다 (실제로 이어진 터에만 적용됨)
-  const buffed = !p.void && p.st && (p.st.buffDmg > 1 || p.st.buffRate > 1);
-  el.className = "piece cat" + (p.void ? " void" : "") + (buffed ? " buffed" : "");
+  // 변리사냥의 보좌를 받고 있으면 배경이 은은하게 반짝인다 (실제로 이어진 터에만 적용됨).
+  // st 는 판 위 심사관만 갖는다 — 대기열 조각은 계산에서 빠지므로 지난 값이 남아 있을 수 있다.
+  const st = onBoard && !p.void ? p.st : null;
+  const buffed = st && (st.buffDmg > 1 || st.buffRate > 1);
+  el.className = "piece cat" + (p.void ? " void" : "") + (buffed ? " buffed" : "")
+    + (st?.awakened ? " awakened" : "")   // 각성한 변리사냥 — 눈에서 불이 번쩍인다
+    + (st?.dummy ? " dummy" : "")         // 각성의 대가로 무력화된 나머지
+    + (st?.merged > 1 ? " merged" : "");  // 결합출원으로 묶인 무리
   el.dataset.uid = String(p.uid);
 
   if (onBoard) {
@@ -1530,6 +1728,14 @@ function pieceEl(p, onBoard) {
     "background:#f2ecdb;border:2px solid #2b2418;border-radius:50%;width:26px;height:26px;" +
     "display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:5";
   el.appendChild(badge);
+
+  // 결합출원 — 몇 마리가 한 몸으로 묶였는지를 모서리에 적는다
+  if (st?.merged > 1) {
+    const mg = document.createElement("span");
+    mg.className = "mg";
+    mg.textContent = "×" + st.merged;
+    el.appendChild(mg);
+  }
 
   el.addEventListener("pointerdown", (e) => startDrag(e, p));
   el.addEventListener("pointerenter", (e) => showTip(e, p));
@@ -1564,7 +1770,7 @@ function renderHud() {
   $("#regHead").textContent = String(game.reg);
 
   const prep = game.phase === "prep";
-  btn("#btnGo").disabled = !prep || game.awaitingPassive;
+  btn("#btnGo").disabled = !prep || game.picking;
   if (prep) disarmSkill();   // 웨이브가 끝나면 조준 상태는 자동으로 풀린다
   updateSkillBar();
 }
@@ -2097,8 +2303,15 @@ function consumeEvents() {
         floaters.push({ x: ev.x, y: ev.y, txt: "돌파!", col: "#e0574d", life: .8 });
         break;
       case "void":
-        log(`<b style="color:#e0574d">무효심결</b> ${ev.name} ${BAL.voidWaves}웨이브 정지`);
+        log(`<b style="color:#e0574d">무효심결</b> ${ev.name} ${ev.waves}웨이브 정지`);
         break;
+      case "mutation": {
+        const bb = $("#board").getBoundingClientRect();
+        stamp(bb.left + bb.width / 2, bb.top + bb.height / 2, "審 決", ev.name);
+        addShake(5, .3);
+        log(`<b style="color:#cda43a">특별심결 「${ev.name}」</b> ${ev.icon} — ${ev.desc}`);
+        break;
+      }
       case "fee":
         floaters.push({ x: ev.x, y: ev.y, txt: `−${ev.amount}`, col: "#e0574d", life: 1.0 });
         addShake(4, .2);
@@ -2275,7 +2488,14 @@ function showTip(e, p) {
   if (dragging) return;
   const t = $("#tip");
   const d = CATS[p.key];
+  const st = p.void ? null : p.st;
+  // 특별심결으로 지금 실제로 어떻게 되어 있는지를 정의보다 먼저 알려준다
+  const now = [];
+  if (st?.awakened) now.push(`<i style="color:#ffb45c">각성 중 — 공격력 ${st.dmg.toFixed(1)} · 공속 ${st.rate.toFixed(2)}/s · 동시조준 ${st.targets}</i>`);
+  else if (st?.dummy) now.push(`<i style="color:#e0574d">더미 상태 — 각성한 변리사냥에게 힘을 내주어 70% 약화</i>`);
+  if (st?.merged > 1) now.push(`<i style="color:#cda43a">결합출원 ${st.merged}마리 무리 — 공격력 ×${(1 + .25 * (st.merged - 1)).toFixed(2)}</i>`);
   t.innerHTML = `<b>${d.name}</b> — ${d.tag}<i>${d.desc}</i><i>1칸짜리 벽이기도 하다.</i>
+    ${now.join("")}
     ${p.void ? `<i style="color:#e0574d">무효 상태 · ${p.void}웨이브 남음</i>` : ""}`;
   t.style.display = "block";
   t.style.left = Math.min(e.clientX + 14, innerWidth - 244) + "px";
@@ -2293,7 +2513,8 @@ function endMatch(iWon, reasonText) {
       <span>최종 동선</span><b>${s.totalPath}칸 (제압 ${s.covered})</b>
       <span>최종 제압률</span><b>${Math.round(s.cover * 100)}%</b>
       <span>배치 심사관</span><b>${s.cats}명</b>
-      <span>특허권 행사</span><b>${s.skillTotal}회 (가처분 ${s.skillUses.injunction} · 폐기 ${s.skillUses.scrap})</b></div>
+      <span>특허권 행사</span><b>${s.skillTotal}회 (가처분 ${s.skillUses.injunction} · 폐기 ${s.skillUses.scrap})</b>
+      <span>특별심결</span><b>${s.mutations.length ? s.mutations.map((k) => MUTATION_BY_KEY[k].name).join(" · ") : "없음"}</b></div>
     <button class="go" id="again" style="padding:10px 26px">로비로</button></div>`;
   $("#modal").classList.add("on");
   $("#again").addEventListener("click", () => location.reload());
@@ -2474,7 +2695,7 @@ function drawSkillFx(g, now) {
 
 /** 냥타워 패널: 카드를 탭하면 그 자리에서 바로 구매·배치한다 */
 function renderCatRoster() {
-  const prep = game.phase === "prep" && !game.awaitingPassive;
+  const prep = game.phase === "prep" && !game.picking;
   $("#catRoster").innerHTML = Object.keys(CATS).map((k) => {
     const d = CATS[k];
     const cost = game.catCost(k);
@@ -2496,7 +2717,7 @@ function renderCatRoster() {
   $("#catRoster").querySelectorAll(".pick").forEach((el) => {
     el.addEventListener("click", (ev) => {
       const key = /** @type {HTMLElement} */ (el).dataset.k;
-      if (game.phase !== "prep" || game.awaitingPassive || game.gold < game.catCost(key)) return;
+      if (game.phase !== "prep" || game.picking || game.gold < game.catCost(key)) return;
       const p = game.buyCat(key);
       if (!p) return;
       render();
@@ -2529,14 +2750,46 @@ function openPassiveModal() {
       const def = PASSIVE_BY_KEY[/** @type {HTMLElement} */ (el).dataset.k];
       game.applyPassive(def);
       sendWS({ t: "passive", key: def.key });
-      $("#modal").classList.remove("on");
       log(def.side === "self" ? `<b>${def.name}</b> 선택 — ${def.desc}` : `<b>${def.name}</b> 선택 — 상대에게 전달됩니다.`);
       renderPassiveTags();
-      $("#phaseLbl").textContent = "준비 단계";
-      btn("#btnGo").textContent = `웨이브 ${game.wave + 1} 개시`;
-      render();
+      // 2웨이브마다는 패시브 다음으로 특별심결이 이어진다 — 모달을 닫지 않고 갈아끼운다
+      if (game.awaitingMutation) { openMutationModal(); return; }
+      closePickModal();
     });
   });
+}
+
+/** 2웨이브마다 뜨는 특별심결 선택 모달 — 패시브를 고른 직후에 이어서 뜬다 */
+function openMutationModal() {
+  const offer = game.mutationOffer.map((k) => MUTATION_BY_KEY[k]).filter(Boolean);
+  $("#sheet").innerHTML = `<h3>특별심결 — 판을 뒤집을 한 장</h3>
+    <div class="hintbar">${BAL.mutationEvery}웨이브마다 한 번. 한 번 새긴 심결은 판이 끝날 때까지 남고, 같은 것은 다시 나오지 않습니다.<br>
+      능력치를 조금 올리는 게 아니라 <b>판의 규칙 자체가 바뀝니다</b> — 고른 뒤엔 배치를 다시 짜세요.</div>
+    <div class="picks mut">${offer.map((def) => `
+      <div class="pick" data-k="${def.key}">
+        <span class="ic">${def.icon}</span>
+        <span class="nm">${def.name} <em>${def.tag}</em></span>
+        <span class="ef">${def.desc}</span>
+        <span class="fl">${def.detail}</span>
+      </div>`).join("")}</div>`;
+  $("#modal").classList.add("on");
+  $("#sheet").querySelectorAll(".pick").forEach((el) => {
+    el.addEventListener("click", () => {
+      const key = /** @type {HTMLElement} */ (el).dataset.k;
+      if (!game.applyMutation(key)) return;
+      sendWS({ t: "mutation", key });
+      closePickModal();
+    });
+  });
+}
+
+/** 웨이브 사이 선택이 전부 끝났을 때 — 모달을 닫고 준비 단계로 되돌린다 */
+function closePickModal() {
+  $("#modal").classList.remove("on");
+  $("#phaseLbl").textContent = "준비 단계";
+  btn("#btnGo").textContent = `웨이브 ${game.wave + 1} 개시`;
+  renderMutationTags();
+  render();
 }
 function renderPassiveTags() {
   // 내 목록에는 "상대가 나에게 건 약화"도 섞여 들어온다 — 그건 내 입장에서 읽히도록 문구를 뒤집는다
@@ -2553,6 +2806,15 @@ function renderPassiveTags() {
 /** 효과 태그 한 칸 — 이름과 실제로 무엇이 바뀌는지를 같이 보여준다 */
 function tagHtml(name, desc, bad) {
   return `<span class="${bad ? "bad" : ""}"><b>${name}</b><i>${desc}</i></span>`;
+}
+/** 헤더의 특별심결 칸 — 새긴 순서대로 남는다 */
+function renderMutationTags() {
+  const el = $("#mutationTags");
+  if (!el) return;
+  el.innerHTML = game.mutations.map((k) => {
+    const d = MUTATION_BY_KEY[k];
+    return `<span class="mut"><b>${d.icon} ${d.name}</b><i>${d.desc}</i></span>`;
+  }).join("") || `<span class="none">없음</span>`;
 }
 
 /**
@@ -2680,11 +2942,12 @@ function beginBattle() {
   buildSkillBar();
   render();
   renderPassiveTags();
+  renderMutationTags();
   setInterval(loop, 1000 / 60);
 }
 
 $("#btnGo").addEventListener("click", () => {
-  if (game.awaitingPassive) return;
+  if (game.picking) return;
   if (!game.startWave()) { log("동선이 막혀 있습니다."); return; }
   $("#phaseLbl").textContent = `웨이브 ${game.wave} 진행 중`;
   btn("#btnGo").textContent = "심사 중…";

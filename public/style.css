@@ -250,7 +250,7 @@ button.go:hover:not(:disabled){background:#d8443a;border-color:#d8443a}
 #board.aiming .piece{cursor:crosshair;pointer-events:none}
 
 /* ── 헤더: 웨이브 옆 효과칸 (내효과 | 상대효과 나란히) ── */
-.stat.effects{display:flex;gap:14px;min-width:280px;flex:1;padding:4px 11px 5px}
+.stat.effects{display:flex;gap:14px;min-width:400px;flex:1;padding:4px 11px 5px}
 .stat.effects .efcol{flex:1;min-width:0}
 .stat.effects .efcol>i{display:block;font-style:normal;font-family:var(--mono);font-size:9px;
   color:var(--muted);letter-spacing:.1em;margin-bottom:2px}
@@ -293,3 +293,57 @@ button.go:hover:not(:disabled){background:#d8443a;border-color:#d8443a}
 @media(prefers-reduced-motion:reduce){
   .piece.cat.buffed::before{animation:none;background-position:40% 50%}
   .piece.cat.buffed::after{animation:none;box-shadow:0 0 9px 2px rgba(143,106,216,.6)}}
+
+/* ══ 특별심결 (2웨이브마다 새기는 판 뒤집기 카드) ══════════════════ */
+
+/* 변리사 각성 — 눈에서 불이 번쩍번쩍 튄다.
+   ::before 는 타일을 덮는 불길, ::after 는 밖으로 터지는 후광이다.
+   .buffed 와 같은 슬롯을 쓰지만 각성하면 보좌 자체가 사라지므로 겹칠 일은 없다. */
+.piece.cat.awakened{border-color:#ff7a1f;box-shadow:2px 3px 0 rgba(255,122,31,.4)}
+.piece.cat.awakened::before{
+  content:"";position:absolute;inset:0;z-index:0;pointer-events:none;
+  background:radial-gradient(circle at 50% 62%,#fff3c4 0%,#ffc74d 22%,#ff7a1f 48%,#c4322a 76%,transparent 100%);
+  background-size:180% 180%;
+  animation:emberFlare .62s ease-in-out infinite alternate}
+.piece.cat.awakened::after{
+  content:"";position:absolute;inset:-3px;z-index:0;pointer-events:none;
+  animation:emberHalo .62s ease-in-out infinite alternate}
+@keyframes emberFlare{
+  from{background-position:50% 60%;opacity:.62}
+  to  {background-position:50% 42%;opacity:.95}}
+@keyframes emberHalo{
+  from{box-shadow:0 0 4px 1px rgba(255,122,31,.45)}
+  to  {box-shadow:0 0 18px 5px rgba(255,199,77,.95)}}
+
+/* 각성의 대가 — 나머지는 힘이 빠져 더미가 된다 */
+.piece.cat.dummy{filter:grayscale(.8) brightness(.82);border-color:#8a7c5e;box-shadow:1px 2px 0 rgba(43,36,24,.3)}
+.piece.cat.dummy canvas{opacity:.6}
+
+/* 결합출원 — 한 몸으로 묶인 무리는 금빛 테두리를 두르고 무리 크기를 적는다 */
+.piece.cat.merged{border-color:var(--gold);box-shadow:0 0 0 2px rgba(205,164,58,.55),2px 3px 0 rgba(205,164,58,.3)}
+.piece.cat .mg{
+  position:absolute;left:-3px;top:-3px;z-index:5;pointer-events:none;
+  font-family:var(--mono);font-size:9.5px;font-weight:700;line-height:1;
+  color:#4a3a10;background:var(--gold);border:1px solid #2b2418;border-radius:8px;padding:2px 5px}
+@media(prefers-reduced-motion:reduce){
+  .piece.cat.awakened::before{animation:none;opacity:.85;background-position:50% 50%}
+  .piece.cat.awakened::after{animation:none;box-shadow:0 0 12px 3px rgba(255,199,77,.8)}}
+
+/* 심결 모달의 안내문 — .hintbar 는 원래 밝은 종이 위를 전제로 한 색이라 어두운 시트에서 다시 잡는다 */
+.sheet .hintbar{color:var(--muted);padding:0 16px;margin:12px 0 0;text-align:left;font-size:11px}
+.sheet .hintbar b{color:var(--gold)}
+
+/* 심결 선택 카드 — 패시브보다 무거운 선택이므로 아이콘을 크게 두고 왼쪽 정렬로 읽힌다 */
+.picks.mut .pick{text-align:left;padding:13px 12px;display:flex;flex-direction:column;gap:2px}
+.picks.mut .pick .ic{font-size:26px;margin:0 0 4px}
+.picks.mut .pick .nm{display:flex;align-items:baseline;gap:6px}
+.picks.mut .pick .nm em{font-style:normal;font-family:var(--mono);font-size:9px;color:#8a7c5e;
+  border:1px solid var(--paper-line);padding:1px 4px;letter-spacing:.04em;font-weight:400}
+.picks.mut .pick .ef{color:#8a2a24;font-weight:700;font-size:11px}
+.picks.mut .pick .fl{font-style:normal;line-height:1.55}
+.picks.mut .pick:hover{background:#f6f0df;box-shadow:inset 0 0 0 1px var(--seal)}
+#modal .sheet:has(.picks.mut){max-width:760px}
+
+/* 헤더의 특별심결 칸 */
+.passiveTags span.mut{border-color:rgba(205,164,58,.7);background:rgba(205,164,58,.14)}
+.passiveTags span.mut b{color:var(--gold)}
