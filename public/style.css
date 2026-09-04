@@ -272,6 +272,21 @@ button.go:hover:not(:disabled){background:#d8443a;border-color:#d8443a}
 .boardctl #btnGo{flex:1;padding:11px}
 .boardctl #btnSpeed{flex:none;min-width:92px}
 
+/* ── 웨이브 개시 동기화 표시줄 ──────────────────────
+   양쪽이 다 준비되어야 웨이브가 열리므로, 지금 누가 무엇을 기다리는지가 보여야 한다.
+   판(종이) 위에 놓이는 줄이라 어두운 패널이 아니라 종이 톤을 쓴다. */
+#readyBar{display:flex;align-items:center;gap:8px;margin-top:8px;
+  font-family:var(--mono);font-size:10.5px;color:#6b5e42}
+#readyBar>span{border:1px solid var(--paper-line);background:var(--paper2);
+  padding:3px 9px;letter-spacing:.04em;white-space:nowrap}
+#readyBar>span.on{border-color:#3f5a2f;background:#c2ddbc;color:#2e3a2c;font-weight:700}
+#readyBar .clock{flex:1;text-align:center;border:0;background:none;padding:3px 0;
+  font-size:14px;font-weight:700;color:var(--seal);letter-spacing:.1em}
+#readyBar .clock.idle{font-size:10.5px;font-weight:400;color:#8a7c5e;letter-spacing:.04em}
+/* 내가 준비를 마친 동안은 개시 버튼이 붉은 인장색에서 초록으로 바뀐다 */
+button.go.waiting{background:#3f5a2f;border-color:#3f5a2f}
+button.go.waiting:hover:not(:disabled){background:#4c6d38;border-color:#4c6d38}
+
 /* ── 보좌를 받는 냥타워 — 프리즘이 타일 위를 훑고 지나간다 ── */
 .piece.cat canvas{position:relative;z-index:1}
 .piece.cat .lv,.piece.cat .reg{z-index:2}

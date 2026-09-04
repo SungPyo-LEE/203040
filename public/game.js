@@ -1553,6 +1553,20 @@ const catCanvas = new Map();
 let ws = null, youAre = null;
 let oppSnapshot = null;   // 상대에게서 마지막으로 받은 보드 스냅샷
 let lastStateSentAt = 0;
+/** 대전이 끝났는가. 늦게 도착한 oppWon/oppLost 가 이미 뜬 결과를 뒤집지 못하게 막는다. */
+let matchOver = false;
+
+/**
+ * 웨이브 개시 동기화 상태. 웨이브를 여는 건 서버이고, 이쪽은 표시와 신고만 한다.
+ * sentPrep  준비 단계 진입을 서버에 알렸는가 (웨이브당 한 번)
+ * open      두 사람이 다 준비 단계에 들어와 제한시간이 돌기 시작했는가
+ * endsAt    제한시간이 끝나는 시각 (performance.now 기준, 표시용)
+ */
+let prepSync = null;
+function resetPrepSync() {
+  prepSync = { sentPrep: false, open: false, iAmReady: false, foeInPrep: false, foeReady: false, endsAt: 0 };
+}
+resetPrepSync();
 
 function connectWS() {
   // HTTPS 로 서비스되면 반드시 wss:// 로 붙어야 한다.
@@ -1604,6 +1618,25 @@ function onServerMessage(msg) {
       if (def) log(`<b class="warn">상대가 특별심결 「${def.name}」</b> ${def.icon} — ${def.desc}`);
       break;
     }
+    case "oppPrep":
+      prepSync.foeInPrep = true;
+      log("상대가 웨이브를 막고 준비 단계에 들어왔습니다.");
+      updateReadyBar();
+      break;
+    case "oppReady":
+      prepSync.foeReady = !!msg.on;
+      updateReadyBar();
+      break;
+    case "prepOpen":
+      // 두 사람이 다 준비 단계에 들어왔다 — 여기서부터 제한시간이 흐른다
+      prepSync.open = true;
+      prepSync.endsAt = performance.now() + msg.ms;
+      log(`양쪽 모두 준비 단계 — <b>${Math.round(msg.ms / 1000)}초</b> 뒤 웨이브 ${game ? game.wave + 1 : 1}이(가) 자동으로 시작됩니다. 둘 다 준비를 누르면 즉시 시작합니다.`);
+      updateReadyBar();
+      break;
+    case "waveGo":
+      startWaveNow();
+      break;
     case "oppWon":
       if (game) endMatch(false, "상대가 먼저 특허 등록을 마쳤습니다.");
       break;
@@ -1769,12 +1802,71 @@ function renderHud() {
   $("#sWave").textContent = `${game.wave}/${BAL.waveCount}`;
   $("#regHead").textContent = String(game.reg);
 
-  const prep = game.phase === "prep";
-  btn("#btnGo").disabled = !prep || game.picking;
-  if (prep) disarmSkill();   // 웨이브가 끝나면 조준 상태는 자동으로 풀린다
+  if (game.phase === "prep") disarmSkill();   // 웨이브가 끝나면 조준 상태는 자동으로 풀린다
+  updateReadyBar();
   updateSkillBar();
 }
 const btn = (s) => /** @type {HTMLButtonElement} */ ($(s));
+
+/* ═══════ 웨이브 개시 동기화 ═══════
+ * 웨이브를 여는 주체는 서버다 (server/index.js 의 openPrep/fireWave 참고).
+ * 이쪽이 하는 일은 셋뿐이다 — 준비 단계에 들어왔다고 알리고, 준비 버튼을 토글하고,
+ * 서버가 waveGo 를 보내면 그때 판을 돌린다.
+ */
+
+/** 준비 단계 진입 신고. 웨이브 사이 효과 선택까지 다 끝난 뒤에만 부른다 (웨이브당 한 번). */
+function enterPrep() {
+  if (!game || matchOver || game.phase !== "prep" || game.picking || prepSync.sentPrep) return;
+  prepSync.sentPrep = true;
+  sendWS({ t: "prep" });
+  updateReadyBar();
+}
+
+/** 준비 버튼. 상대가 아직 싸우는 중에도 미리 눌러 둘 수 있고, 다시 눌러 취소할 수 있다. */
+function toggleReady() {
+  if (!game || matchOver || game.phase !== "prep" || game.picking) return;
+  prepSync.iAmReady = !prepSync.iAmReady;
+  sendWS({ t: "ready", on: prepSync.iAmReady });
+  updateReadyBar();
+}
+
+/** 서버가 waveGo 를 보냈다 — 양쪽이 같은 순간에 같은 웨이브를 연다. */
+function startWaveNow() {
+  resetPrepSync();
+  if (!game || matchOver || game.phase !== "prep" || game.picking) { updateReadyBar(); return; }
+  if (!game.startWave()) { log("동선이 막혀 있습니다."); updateReadyBar(); return; }
+  $("#phaseLbl").textContent = `웨이브 ${game.wave} 진행 중`;
+  render();
+}
+
+/** 준비 표시줄은 남은 시간 때문에 매 프레임 불린다 — 실제로 바뀐 것만 DOM 에 쓴다. */
+let readyBarCache = "";
+function updateReadyBar() {
+  const b = btn("#btnGo"), bar = $("#readyBar");
+  if (!game || !b) return;
+  const waiting = game.phase === "prep" && !game.picking && !matchOver;
+
+  if (matchOver) { b.disabled = true; b.textContent = "대전 종료"; }
+  else if (game.phase === "wave") { b.disabled = true; b.textContent = "심사 중…"; }
+  else if (game.picking) { b.disabled = true; b.textContent = "효과 선택 중…"; }
+  else { b.disabled = false; b.textContent = prepSync.iAmReady ? "준비 취소" : `웨이브 ${game.wave + 1} 준비 완료`; }
+  b.classList.toggle("waiting", waiting && prepSync.iAmReady);
+
+  if (!bar) return;
+  bar.classList.toggle("hidden", !waiting);
+  if (!waiting) return;
+
+  // 가운데 칸 — 제한시간이 돌기 전에는 왜 안 도는지를 대신 보여준다
+  const clock = prepSync.open
+    ? `${Math.max(0, (prepSync.endsAt - performance.now()) / 1000).toFixed(1)}초`
+    : (prepSync.foeInPrep ? "동기화 중…" : "상대 웨이브 진행 중");
+  const chip = (on, txt) => `<span class="${on ? "on" : ""}">${txt}</span>`;
+  const html = chip(prepSync.iAmReady, prepSync.iAmReady ? "나 · 준비완료" : "나 · 대기")
+    + `<span class="clock${prepSync.open ? "" : " idle"}">${clock}</span>`
+    + chip(prepSync.foeReady, !prepSync.foeInPrep ? "상대 · 전투중"
+        : prepSync.foeReady ? "상대 · 준비완료" : "상대 · 대기");
+  if (html !== readyBarCache) { readyBarCache = html; bar.innerHTML = html; }
+}
 
 function renderReport() {
   const cov = Math.round(game.cover * 100);
@@ -2380,6 +2472,7 @@ function loop() {
   stepSkillFx(dt);
 
   consumeEvents();
+  updateReadyBar();   // 남은 제한시간이 흐르는 것을 보여준다 (바뀐 것만 DOM 에 쓴다)
   draw(now);
   drawOpponent(now);
   maybeSendState(now);
@@ -2504,6 +2597,11 @@ function showTip(e, p) {
 const hideTip = () => { $("#tip").style.display = "none"; };
 
 function endMatch(iWon, reasonText) {
+  // 승패는 한 번만 정해진다 — 웨이브가 동시에 끝나면서 늦게 온 oppWon/oppLost 가
+  // 이미 띄운 결과를 뒤집는 일이 없도록 막는다.
+  if (matchOver) return;
+  matchOver = true;
+  updateReadyBar();
   const s = game.summary();
   $("#sheet").innerHTML = `<div class="end">
     <h3 style="color:${iWon ? "#cda43a" : "#e0574d"}">${iWon ? "登錄 決定 — 승리" : "拒 絶 決 定 — 패배"}</h3>
@@ -2787,9 +2885,9 @@ function openMutationModal() {
 function closePickModal() {
   $("#modal").classList.remove("on");
   $("#phaseLbl").textContent = "준비 단계";
-  btn("#btnGo").textContent = `웨이브 ${game.wave + 1} 개시`;
   renderMutationTags();
   render();
+  enterPrep();   // 고를 것을 다 골랐다 — 이제서야 준비 단계로 친다
 }
 function renderPassiveTags() {
   // 내 목록에는 "상대가 나에게 건 약화"도 섞여 들어온다 — 그건 내 입장에서 읽히도록 문구를 뒤집는다
@@ -2932,8 +3030,10 @@ function beginBattle() {
   skillFx = [];
   armedSkill = null; aimPt = null;
   shakeT = 0; shakeMag = 0;
+  matchOver = false;
+  resetPrepSync();
+  readyBarCache = "";
   $("#phaseLbl").textContent = "준비 단계";
-  btn("#btnGo").textContent = "웨이브 1 개시";
   $("#mapName").textContent = game.map.name;
   $("#oppLabel").textContent = youAre === "p1" ? "OPPONENT (후)" : "OPPONENT (선)";
   log(`<b>${game.map.name}</b> 방위 개시 · ${game.map.desc}`);
@@ -2943,16 +3043,12 @@ function beginBattle() {
   render();
   renderPassiveTags();
   renderMutationTags();
+  enterPrep();          // 웨이브 1도 양쪽이 준비되어야 열린다
   setInterval(loop, 1000 / 60);
 }
 
-$("#btnGo").addEventListener("click", () => {
-  if (game.picking) return;
-  if (!game.startWave()) { log("동선이 막혀 있습니다."); return; }
-  $("#phaseLbl").textContent = `웨이브 ${game.wave} 진행 중`;
-  btn("#btnGo").textContent = "심사 중…";
-  render();
-});
+// 개시 버튼은 이제 「준비」 토글이다 — 웨이브를 실제로 여는 것은 서버(waveGo)다
+$("#btnGo").addEventListener("click", toggleReady);
 $("#btnSpeed").addEventListener("click", (e) => {
   speed = speed === 1 ? 2 : speed === 2 ? 3 : 1;
   /** @type {HTMLElement} */ (e.target).textContent = "속도 ×" + speed;

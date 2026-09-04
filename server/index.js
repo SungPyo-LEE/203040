@@ -35,8 +35,51 @@ const httpServer = http.createServer((req, res) => {
   });
 });
 
-/** roomCode -> { conns: [conn1, conn2|null] } */
+/** roomCode -> { conns: [conn1, conn2|null], prep } */
 const rooms = new Map();
+
+/* ── 웨이브 개시 동기화 ─────────────────────────────────
+ * 예전에는 각자 「웨이브 개시」를 눌러 자기 판만 돌렸다. 그러면 빨리 누르는 쪽이 그냥 앞서 나가서,
+ * 실력이 아니라 클릭 속도가 승부를 갈랐다.
+ *
+ * 이제 웨이브를 여는 것은 서버다:
+ *   1. 각자 준비 단계에 들어오면 { t:'prep' } 을 보낸다 (웨이브 사이 효과 선택까지 끝난 뒤에).
+ *   2. 두 사람이 다 들어오면 그 순간부터 PREP_MS 를 잰다 — 먼저 끝낸 쪽이 기다리는 동안은
+ *      시간이 흐르지 않으므로, 느리게 막은 쪽도 배치할 시간을 온전히 받는다.
+ *   3. 둘 다 준비를 누르면 기다리지 않고 즉시, 아니면 시간이 다 되면 자동으로 양쪽에 waveGo 를 보낸다.
+ */
+const PREP_MS = 15000;
+
+function prepOf(room) {
+  if (!room.prep) room.prep = { in: [false, false], ready: [false, false], timer: null };
+  return room.prep;
+}
+function seatOf(room, conn) { return room.conns[0] === conn ? 0 : 1; }
+function bothSend(room, obj) { for (const c of room.conns) if (c) send(c, obj); }
+function stopPrepTimer(p) { if (p.timer) { clearTimeout(p.timer); p.timer = null; } }
+
+/** 두 사람이 모두 준비 단계에 들어왔으면 제한시간을 건다 (이미 돌고 있으면 그대로 둔다) */
+function openPrep(room) {
+  const p = prepOf(room);
+  if (p.timer || !p.in[0] || !p.in[1]) return;
+  bothSend(room, { t: 'prepOpen', ms: PREP_MS });
+  p.timer = setTimeout(() => { p.timer = null; fireWave(room); }, PREP_MS);
+}
+
+/** 둘 다 준비를 눌렀으면 제한시간을 기다리지 않는다 */
+function firePrepIfReady(room) {
+  const p = prepOf(room);
+  if (p.ready[0] && p.ready[1]) fireWave(room);
+}
+
+function fireWave(room) {
+  const p = prepOf(room);
+  if (!p.in[0] || !p.in[1]) return;   // 한쪽이 아직 웨이브를 막고 있거나 판을 떠났다
+  stopPrepTimer(p);
+  p.in = [false, false];
+  p.ready = [false, false];
+  bothSend(room, { t: 'waveGo' });
+}
 
 function makeCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 헷갈리는 글자(0/O, 1/I) 제외
@@ -56,6 +99,7 @@ function leaveRoom(conn) {
   if (!room) return;
   const other = otherOf(room, conn);
   if (other) { send(other, { t: 'oppLeft' }); other._room = null; }
+  if (room.prep) stopPrepTimer(room.prep);   // 방이 사라진 뒤 타이머가 혼자 깨어나지 않도록
   rooms.delete(conn._room);
   conn._room = null;
 }
@@ -97,6 +141,22 @@ attachWebSocketServer(httpServer, (conn) => {
     if (!room) return;
     const other = otherOf(room, conn);
     if (!other) return;
+
+    // 준비 상태는 중계가 아니라 서버가 직접 판정한다 — 웨이브를 여는 주체가 서버이기 때문이다
+    if (msg.t === 'prep') {
+      prepOf(room).in[seatOf(room, conn)] = true;
+      send(other, { t: 'oppPrep' });
+      openPrep(room);
+      firePrepIfReady(room);
+      return;
+    }
+    if (msg.t === 'ready') {
+      prepOf(room).ready[seatOf(room, conn)] = !!msg.on;
+      send(other, { t: 'oppReady', on: !!msg.on });
+      firePrepIfReady(room);
+      return;
+    }
+
     const relayType = RELAY[msg.t];
     if (relayType) send(other, Object.assign({}, msg, { t: relayType }));
   });
